@@ -25,8 +25,8 @@ async function checkMic() {
 }
 
 function goToOnboarding() {
-  // Replace this tab with the settings page in onboarding mode
-  location.href = chrome.runtime.getURL('settings.html?onboarding=1');
+  // New users land directly on the Install step
+  location.href = chrome.runtime.getURL('settings.html#install');
 }
 
 (async () => {
