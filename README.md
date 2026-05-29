@@ -14,12 +14,9 @@ A Chrome extension for Claude Code users. Record what's broken, hit stop — Cla
 
 ## What is this
 
-You spot a bug or want a feature. You hit ✦ in your toolbar, talk through what you want while showing it on screen, and stop. Claude Brief saves a zip locally in `~/Downloads/Brief/`.
+You spot a bug or want a feature. You hit ✦ in your toolbar, talk through what you want while showing it on screen, and stop. Claude Brief saves a zip locally in `~/Downloads/claude-brief/` and adds it to your inbox.
 
-From there, two flows:
-
-- **Ship now** → one sentence is copied to your clipboard. Paste into Claude Code, ticket gets filed in seconds.
-- **Save to inbox** → queue it. Later (manually or via a scheduled task), Claude processes your whole inbox at once — groups duplicates, files each ticket, deletes the source briefs.
+Capture as many as you like through the day — they queue up. Then either copy the inbox prompt anytime and paste it into Claude Code, or let a scheduled daily task process the whole inbox automatically. Claude reads each brief, files a real ticket in your tracker, groups duplicates, and deletes the source brief once it's filed.
 
 The whole loop is local-first. Your audio, your screen, your data — nothing leaves your machine except what Claude reads when you ask.
 
@@ -34,35 +31,52 @@ Claude Brief is built specifically for Claude Code users. It won't work standalo
 
 **Step 1 — Install the Chrome extension** (one-time, manual):
 
-1. [Download the latest release](https://github.com/<you>/claude-brief/releases/latest) and unzip it.
+1. [Download the repo](https://github.com/razi2001/claude-brief/archive/refs/heads/main.zip) and unzip it (or clone it).
 2. Open `chrome://extensions`, toggle **Developer mode** on, click **Load unpacked**, pick the `extension/` folder.
 3. Pin the ✦ icon to your toolbar (puzzle-piece menu → pushpin).
 
-The first time you click ✦, a permission tab opens with the rest of setup: grant microphone access, then (optionally) copy the scheduled-task prompt for Claude Code Desktop.
+The first time you click ✦, a permission tab opens, then hands off to the setup page where you pick your daily schedule and copy the install prompt.
 
-**Step 2 — Install the Claude Brief skill** (one prompt, paste into Claude Code):
+**Step 2 — Install the skill** (one prompt, paste into Claude Code Desktop):
 
 ```text
-Install the Claude Brief skill on this machine. Download https://github.com/<you>/claude-brief/archive/refs/heads/main.tar.gz, extract just the `skill/` folder, and copy it to ~/.claude/skills/brief (overwrite if it exists). After installation, list the files you placed and confirm ~/.claude/skills/brief/SKILL.md exists.
+Set up Claude Brief on this machine.
+
+1. Install the skill by reading it straight from the public repo (no download or git needed — just browse the files and recreate them locally):
+
+   Repo: https://github.com/razi2001/claude-brief/tree/main/skill
+
+   Read these three files and write them to ~/.claude/skills/brief/ with the same paths:
+   - https://github.com/razi2001/claude-brief/blob/main/skill/SKILL.md            → ~/.claude/skills/brief/SKILL.md
+   - https://github.com/razi2001/claude-brief/blob/main/skill/playbooks/issue.md  → ~/.claude/skills/brief/playbooks/issue.md
+   - https://github.com/razi2001/claude-brief/blob/main/skill/playbooks/inbox.md  → ~/.claude/skills/brief/playbooks/inbox.md
+
+   Create the ~/.claude/skills/brief/playbooks/ directory first. Copy each file's contents verbatim. Then confirm ~/.claude/skills/brief/SKILL.md exists.
+
+2. Create a scheduled task "Brief Daily" that runs every weekday at 6pm with the prompt: "Use the brief skill to process my inbox."
+
+Confirm the skill is in place and the task is scheduled.
 ```
+
+The extension's setup page generates this prompt for you with your chosen schedule time filled in — you don't have to write it by hand.
 
 That's it.
 
 ## How it works
 
 ```
-┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│  Chrome ext      │ →  │  ~/Downloads/    │ →  │  Claude Code     │
-│  records tab +   │    │  Brief/brief-    │    │  reads brief.json│
-│  voice           │    │  <id>.zip        │    │  files ticket    │
-└──────────────────┘    └──────────────────┘    │  deletes brief   │
-       click ✦              local zip            └──────────────────┘
+┌──────────────────┐    ┌────────────────────┐    ┌──────────────────┐
+│  Chrome ext      │ →  │  ~/Downloads/      │ →  │  Claude Code     │
+│  records tab +   │    │  claude-brief/     │    │  reads brief.json│
+│  voice           │    │  brief-<id>.zip    │    │  files ticket    │
+└──────────────────┘    └────────────────────┘    │  deletes brief   │
+       click ✦              local zip              └──────────────────┘
 ```
 
 A brief is a folder:
 
 ```
-~/Downloads/Brief/<id>/
+~/Downloads/claude-brief/<id>/
 ├── brief.json              ← transcript, time-stamped chunks, events, console errors
 ├── recording.webm          ← original screen + voice
 └── keyframes/
@@ -70,14 +84,15 @@ A brief is a folder:
     └── …
 ```
 
-When Claude processes a brief (either single via "Ship now" or batched via "inbox"), it:
+When Claude processes briefs (one at a time, or your whole inbox at once), it:
 
 - Binary-searches the keyframes (reads 3-5 strategic frames, not all 20+)
 - Maps your spoken words to the frames you said them on (±2 seconds)
 - Picks the right Linear team / GitHub repo / Notion DB **without asking you**
 - Embeds keyframes inline as markdown images (not as bare attachments)
+- Attaches the recording only when it beats the keyframes (motion/timing/multi-step bugs)
 - Includes console errors verbatim for bug reports
-- **Deletes the brief from `~/Downloads/Brief/` once the ticket is confirmed filed**
+- **Deletes the brief from `~/Downloads/claude-brief/` once the ticket is confirmed filed**
 
 The skill's hard rules (no clarifying questions, inline images, binary-search frames, delete-on-success) live in `skill/playbooks/`.
 
@@ -85,16 +100,16 @@ The skill's hard rules (no clarifying questions, inline images, binary-search fr
 
 For users who don't want to manually paste prompts: **set up a Claude Code Desktop scheduled task**.
 
-After the install flow, you'll get a prompt to copy into Claude Code Desktop. Paste it once; Claude creates a recurring task that runs every weekday at 6pm. The task:
+The extension's setup page generates the prompt for you (with your chosen time). Paste it once; Claude creates a recurring task that runs every weekday at your chosen time. The task:
 
-- Reads every brief still in `~/Downloads/Brief/`
+- Reads every brief still in `~/Downloads/claude-brief/`
 - Files tickets via your connected tracker MCP
 - Groups duplicates intelligently
 - Deletes processed briefs
 
-Caveat: Claude Code Desktop must be running at 6pm for the task to fire. If your laptop is closed, the task is skipped (and runs next time Claude Code is open). This is a [Claude Code Desktop limitation](https://code.claude.com/docs/en/desktop-scheduled-tasks), not Brief's.
+Caveat: Claude Code Desktop must be running at that time for the task to fire. If your laptop is closed, the task is skipped (and runs next time Claude Code is open). This is a [Claude Code Desktop limitation](https://code.claude.com/docs/en/desktop-scheduled-tasks), not Brief's.
 
-If you'd rather process manually, skip the setup — every brief still works with the "Ship now" or "inbox → Send" flows.
+If you'd rather process manually, skip the schedule — click the ✦ icon, hit **Copy** on the inbox card, and paste the prompt into Claude Code whenever you like.
 
 ## Voice quality, honestly
 
@@ -126,8 +141,8 @@ Chromium-based browsers only for now (Chrome, Edge, Brave, Arc).
 
 **Where do briefs get stored?**
 
-- macOS / Linux: `~/Downloads/Brief/`
-- Windows: `%USERPROFILE%\Downloads\Brief\`
+- macOS / Linux: `~/Downloads/claude-brief/`
+- Windows: `%USERPROFILE%\Downloads\claude-brief\`
 
 **Can I share a brief with a teammate?**
 The zip is self-contained. Send it to them; if they have the Claude Brief skill installed, they can paste `Use the brief skill to handle brief <id> as an issue.` and Claude will process it on their machine.
@@ -138,13 +153,17 @@ You can drag it. Grip the 6-dot handle on the left. Position is saved across all
 ## Update
 
 ```text
-Update the Claude Brief skill on this machine. Re-download https://github.com/<you>/claude-brief/archive/refs/heads/main.tar.gz, replace the contents of ~/.claude/skills/brief with the latest `skill/` folder, and tell me the new version.
+Update the Claude Brief skill to the latest version. Read the three skill files from the public repo and overwrite the local copies (no download or git needed — just browse and recreate):
+   - https://github.com/razi2001/claude-brief/blob/main/skill/SKILL.md            → ~/.claude/skills/brief/SKILL.md
+   - https://github.com/razi2001/claude-brief/blob/main/skill/playbooks/issue.md  → ~/.claude/skills/brief/playbooks/issue.md
+   - https://github.com/razi2001/claude-brief/blob/main/skill/playbooks/inbox.md  → ~/.claude/skills/brief/playbooks/inbox.md
+Copy each file's contents verbatim, replacing what's there. Then tell me what changed.
 ```
 
 ## Uninstall
 
 ```text
-Uninstall the Claude Brief skill. Delete the directory ~/.claude/skills/brief if it exists, and confirm it's gone. Also list any leftover briefs in ~/Downloads/Brief/ and ask me whether to delete them too.
+Uninstall the Claude Brief skill. Delete the directory ~/.claude/skills/brief and the "Brief Daily" scheduled task if they exist, and confirm both are gone. Also list any leftover briefs in ~/Downloads/claude-brief/ and ask me whether to delete them too.
 ```
 
 Then remove the extension at `chrome://extensions`.

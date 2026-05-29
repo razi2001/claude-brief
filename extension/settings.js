@@ -7,7 +7,7 @@
 // chrome.storage.local:
 //   scheduleTime : "HH:MM"  (remembered between visits, prefilled in pickers)
 
-const REPO = 'https://github.com/you/claude-brief'; // TODO: real repo URL
+const REPO = 'https://github.com/razi2001/claude-brief';
 
 // ---------- Step navigation ----------
 const steps = Array.from(document.querySelectorAll('.step'));
@@ -37,7 +37,16 @@ function timeLabel(time) {
 function installPromptText(time) {
   return `Set up Claude Brief on this machine.
 
-1. Install the skill: download ${REPO}/archive/refs/heads/main.tar.gz, extract the skill/ folder, and copy it to ~/.claude/skills/brief (overwrite if it exists). Confirm ~/.claude/skills/brief/SKILL.md exists.
+1. Install the skill by reading it straight from the public repo (no download or git needed — just browse the files and recreate them locally):
+
+   Repo: ${REPO}/tree/main/skill
+
+   Read these three files and write them to ~/.claude/skills/brief/ with the same paths:
+   - ${REPO}/blob/main/skill/SKILL.md            → ~/.claude/skills/brief/SKILL.md
+   - ${REPO}/blob/main/skill/playbooks/issue.md  → ~/.claude/skills/brief/playbooks/issue.md
+   - ${REPO}/blob/main/skill/playbooks/inbox.md  → ~/.claude/skills/brief/playbooks/inbox.md
+
+   Create the ~/.claude/skills/brief/playbooks/ directory first. Copy each file's contents verbatim. Then confirm ~/.claude/skills/brief/SKILL.md exists.
 
 2. Create a scheduled task "Brief Daily" that runs every weekday at ${timeLabel(time)} with the prompt: "Use the brief skill to process my inbox."
 
@@ -47,7 +56,11 @@ function schedulePromptText(time) {
   return `Update my "Brief Daily" scheduled task to run every weekday at ${timeLabel(time)}. Keep the prompt the same: "Use the brief skill to process my inbox."`;
 }
 function updatePromptText() {
-  return `Update the Claude Brief skill. Re-download ${REPO}/archive/refs/heads/main.tar.gz, replace the contents of ~/.claude/skills/brief with the latest skill/ folder, and tell me the new version.`;
+  return `Update the Claude Brief skill to the latest version. Read the three skill files from the public repo and overwrite the local copies (no download or git needed — just browse and recreate):
+   - ${REPO}/blob/main/skill/SKILL.md            → ~/.claude/skills/brief/SKILL.md
+   - ${REPO}/blob/main/skill/playbooks/issue.md  → ~/.claude/skills/brief/playbooks/issue.md
+   - ${REPO}/blob/main/skill/playbooks/inbox.md  → ~/.claude/skills/brief/playbooks/inbox.md
+Copy each file's contents verbatim, replacing what's there. Then tell me what changed.`;
 }
 function uninstallPromptText() {
   return `Uninstall the Claude Brief skill: delete ~/.claude/skills/brief and the "Brief Daily" scheduled task if it exists. Confirm both are gone. Then list any leftover briefs in ~/Downloads/claude-brief/ and ask whether to delete them too.`;
