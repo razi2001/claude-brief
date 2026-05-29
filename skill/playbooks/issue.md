@@ -89,7 +89,7 @@ Browser: <derived from userAgent>
 ![Frame at 0:06 — no feedback after click](assetUrl-002)
 > "<transcript chunk near 0:06>"
 
-**Brief**: `~/Downloads/Brief/<id>/`  (recording attached)
+**Brief**: `~/Downloads/claude-brief/<id>/`  (recording attached)
 ```
 
 **For features:**
@@ -108,7 +108,7 @@ Page: <pageUrl>
 ![Frame at 0:04 — where it should appear](assetUrl-001)
 > "<transcript chunk near 0:04>"
 
-**Brief**: `~/Downloads/Brief/<id>/`
+**Brief**: `~/Downloads/claude-brief/<id>/`
 ```
 
 ## 7. Upload + embed images INLINE
@@ -124,12 +124,40 @@ For each selected keyframe:
 
 Create the issue FIRST (with placeholder image refs or an empty Evidence section), then upload, then update the issue's description with the real URLs. Most trackers require an `issueId` before file upload.
 
-For the `recording.webm`: attach as a file (not embedded) — it's too big to embed and most trackers don't render video inline anyway. Use a single line: `**Recording**: see attached recording.webm`.
+### The recording
 
-## 8. Confirm
+Every brief includes `recording.webm` (the full screen + voice capture). You decide whether to attach it to the ticket. **Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
+
+Attach the recording when:
+- The bug is about **motion or timing**: a janky animation, a flash, a race condition, a layout that jumps, scroll jank, a transition that breaks
+- The repro is a **multi-step interaction** that's hard to convey with a few stills (drag-and-drop, a multi-field form flow, a hover/focus sequence)
+- The keyframes **miss the moment** — the sampling (every 2s) didn't capture the exact frame where it breaks
+- The user's **voice explanation references something dynamic** ("watch how it stutters when I click here")
+
+Skip the recording (keyframes alone are enough) when:
+- It's a **static** bug — wrong text, broken layout, missing button, bad color, a value that's incorrect. A screenshot says everything.
+- The keyframes already show the before/after clearly
+- It's a **feature request** with no specific on-screen repro
+
+When you do attach it, one line in the ticket: `**Recording**: see attached recording.webm`. When you don't, don't mention it at all — the keyframes carry the ticket.
+
+To attach: use the tracker's file-upload flow (same `prepare_attachment_upload` → PUT → `create_attachment_from_upload` sequence as keyframes, but the webm goes as a downloadable attachment, not an inline image — most trackers don't render video inline).
+
+## 8. Confirm + clean up
 
 End with one short summary line:
 
 > Filed **<title>** in **<team>** → <url>. Used N frames + Y transcript chunks. If <team> isn't right, just tell me.
 
 That's it. No mid-flow questions. No "do you want me to attach the video?". You decided, you executed, you reported.
+
+## 9. Delete the brief
+
+After the ticket is successfully filed, delete the source brief from disk:
+
+```bash
+rm -rf ~/Downloads/claude-brief/brief-<id>.zip
+rm -rf ~/Downloads/claude-brief/brief-<id>/
+```
+
+The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief in place and tell the user what failed so they can retry.

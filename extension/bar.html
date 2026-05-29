@@ -25,6 +25,16 @@
 
         <!-- RECORDING -->
         <div data-state="recording" class="state-inner">
+          <button id="dragGrip" class="drag-grip" title="Drag to move">
+            <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">
+              <circle cx="2" cy="3"  r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="3"  r="1.2" fill="currentColor"/>
+              <circle cx="2" cy="8"  r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="8"  r="1.2" fill="currentColor"/>
+              <circle cx="2" cy="13" r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="13" r="1.2" fill="currentColor"/>
+            </svg>
+          </button>
           <button id="stopBtn" class="stop-btn" title="Stop &amp; copy">
             <span class="stop-square"></span>
           </button>
@@ -62,6 +72,24 @@
           <span class="state-text"><strong>Copied.</strong><em> Paste into Claude.</em></span>
           <span class="spacer"></span>
           <button id="closeBtn" class="icon-btn" title="Dismiss">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- INBOXED — added to inbox, no Claude prompt yet -->
+        <div data-state="inboxed" class="state-inner">
+          <span class="check-pill">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 8h18l-2 11H5L3 8z"/>
+              <path d="M8 8V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/>
+            </svg>
+          </span>
+          <span class="state-text"><strong>Saved to inbox.</strong><em> Send later from the launcher.</em></span>
+          <span class="spacer"></span>
+          <button id="inboxCloseBtn" class="icon-btn" title="Dismiss">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
               <line x1="6" y1="6" x2="18" y2="18"/>
               <line x1="18" y1="6" x2="6" y2="18"/>

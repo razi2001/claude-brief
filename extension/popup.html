@@ -17,7 +17,7 @@
     <main id="app">
       <header class="head">
         <span class="brand">
-          <svg class="mark" viewBox="0 0 128 128" width="48" height="48" aria-hidden="true">
+          <svg class="mark" viewBox="0 0 128 128" width="44" height="44" aria-hidden="true">
             <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
             <path fill="#f5f1e8" d="
               M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
@@ -32,56 +32,49 @@
           </svg>
           <span class="wordmark">Claude Brief</span>
         </span>
+        <button id="settingsBtn" class="gear" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
       </header>
 
-      <h1 class="hed">What's this brief <em>for</em>?</h1>
+      <h1 class="hed">What's the <em>issue</em>?</h1>
 
-      <fieldset class="intents">
-        <label class="intent">
-          <input type="radio" name="intent" value="issue" checked />
-          <span class="intent-body">
-            <span class="intent-title">Issue</span>
-            <span class="intent-desc">File a ticket</span>
-          </span>
-        </label>
-        <label class="intent">
-          <input type="radio" name="intent" value="pr" />
-          <span class="intent-body">
-            <span class="intent-title">PR</span>
-            <span class="intent-desc">Draft a pull request</span>
-          </span>
-        </label>
-        <label class="intent">
-          <input type="radio" name="intent" value="brainstorm" />
-          <span class="intent-body">
-            <span class="intent-title">Brainstorm</span>
-            <span class="intent-desc">Riff on a product idea</span>
-          </span>
-        </label>
-        <label class="intent">
-          <input type="radio" name="intent" value="context" />
-          <span class="intent-body">
-            <span class="intent-title">Context</span>
-            <span class="intent-desc">Hand Claude background</span>
-          </span>
-        </label>
-      </fieldset>
-
-      <label class="control">
+      <div class="control" id="langControl">
         <span class="control-label">Lang</span>
-        <select id="lang">
-          <option value="en-US">English</option>
-          <option value="fr-FR">Français</option>
-        </select>
-      </label>
-
-      <button id="start" class="primary">
-        <span class="dot"></span> Start recording
-      </button>
-
-      <div class="quiet-row">
-        <a id="permLink" href="#">Microphone permission</a>
+        <button type="button" class="lang-trigger" id="langTrigger" aria-haspopup="listbox" aria-expanded="false">
+          <span id="langValue">English</span>
+          <svg class="chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+        <ul class="lang-menu" id="langMenu" role="listbox" hidden>
+          <li role="option" data-value="en-US" class="lang-opt">English</li>
+          <li role="option" data-value="fr-FR" class="lang-opt">Français</li>
+        </ul>
+        <input type="hidden" id="lang" value="en-US" />
       </div>
+
+      <!-- Inbox card — shown only when inbox has briefs -->
+      <div id="inboxRow" class="inbox-row" hidden>
+        <span class="inbox-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 12h-6l-2 3h-4l-2-3H2"/>
+            <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+          </svg>
+        </span>
+        <span class="inbox-text">
+          <span class="inbox-text-line1"><span id="inboxCount">0</span> in your inbox</span>
+          <span class="inbox-text-line2">copy the prompt, hand it to Claude Code</span>
+        </span>
+        <button id="sendInbox" class="inbox-send">Copy</button>
+      </div>
+
+      <button id="startRecord" class="primary">
+        <span class="dot"></span> Record
+      </button>
     </main>
     <script src="popup.js"></script>
   </body>

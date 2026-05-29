@@ -17,7 +17,7 @@
       return false;
     }
     if (message?.type === 'INJECT_BAR') {
-      injectBar(message.streamId, message.lang || 'en-US', message.intent || 'issue');
+      injectBar(message.streamId, message.lang || 'en-US', message.intent || 'issue', message.mode || 'ship');
     } else if (message?.type === 'BRIEF_START') {
       active = true;
       startedAt = message.startedAt || Date.now();
@@ -30,13 +30,14 @@
   });
 
   // ---------- Iframe injection ----------
-  function injectBar(streamId, lang, intent) {
+  function injectBar(streamId, lang, intent, mode) {
     // If a bar is already on-screen, ignore — recording's in progress
     if (iframeEl) return;
     const hashParts = [
       `streamId=${encodeURIComponent(streamId)}`,
       `lang=${encodeURIComponent(lang)}`,
       `intent=${encodeURIComponent(intent)}`,
+      `mode=${encodeURIComponent(mode || 'ship')}`,
     ];
     const url = chrome.runtime.getURL('bar.html') + '#' + hashParts.join('&');
 
@@ -62,6 +63,16 @@
     });
     (document.body || document.documentElement).appendChild(iframeEl);
 
+    // Restore previous position if saved
+    try {
+      chrome.storage.local.get('barPos', ({ barPos }) => {
+        if (barPos && typeof barPos.left === 'number' && typeof barPos.top === 'number') {
+          // Wait a tick so the iframe has dimensions before we clamp
+          requestAnimationFrame(() => applyIframePosition(barPos.left, barPos.top));
+        }
+      });
+    } catch {}
+
     window.addEventListener('message', onIframeMessage);
   }
 
@@ -69,6 +80,53 @@
     if (!iframeEl) return;
     iframeEl.style.width = `${w}px`;
     iframeEl.style.height = `${h}px`;
+  }
+
+  // ---------- Drag state ----------
+  let dragOrigin = null; // {left, top, mouseX, mouseY} when drag started
+
+  function onPageMouseMove(e) {
+    if (!dragOrigin) return;
+    const dx = e.clientX - dragOrigin.mouseX;
+    const dy = e.clientY - dragOrigin.mouseY;
+    applyIframePosition(dragOrigin.left + dx, dragOrigin.top + dy);
+  }
+
+  function onPageMouseUp() {
+    if (!dragOrigin) return;
+    if (iframeEl) {
+      iframeEl.style.transition = 'opacity 0.18s ease';
+      iframeEl.style.pointerEvents = 'auto';
+    }
+    dragOrigin = null;
+    persistPosition();
+    document.removeEventListener('mousemove', onPageMouseMove, true);
+    document.removeEventListener('mouseup', onPageMouseUp, true);
+  }
+
+  function applyIframePosition(left, top) {
+    if (!iframeEl) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = iframeEl.offsetWidth || 400;
+    const h = iframeEl.offsetHeight || 80;
+    const clampedLeft = Math.max(0, Math.min(vw - w, left));
+    const clampedTop = Math.max(0, Math.min(vh - h, top));
+    iframeEl.style.left = `${clampedLeft}px`;
+    iframeEl.style.top = `${clampedTop}px`;
+    iframeEl.style.right = '';
+    iframeEl.style.bottom = '';
+    iframeEl.style.transform = '';
+  }
+
+  function persistPosition() {
+    if (!iframeEl) return;
+    const rect = iframeEl.getBoundingClientRect();
+    try {
+      chrome.storage.local.set({
+        barPos: { left: rect.left, top: rect.top },
+      });
+    } catch {}
   }
 
   function onIframeMessage(e) {
@@ -81,6 +139,19 @@
       setIframeSize(Math.max(220, Math.min(640, w)), Math.max(50, Math.min(640, h)));
     } else if (msg.type === 'close') {
       fadeOutAndRemove();
+    } else if (msg.type === 'dragStart') {
+      const rect = iframeEl.getBoundingClientRect();
+      dragOrigin = {
+        left: rect.left,
+        top: rect.top,
+        mouseX: rect.left + (msg.localX || 0),
+        mouseY: rect.top + (msg.localY || 0),
+      };
+      iframeEl.style.transition = 'none';
+      // Disable iframe pointer-events so cursor stays at page level during drag
+      iframeEl.style.pointerEvents = 'none';
+      document.addEventListener('mousemove', onPageMouseMove, true);
+      document.addEventListener('mouseup', onPageMouseUp, true);
     }
   }
 

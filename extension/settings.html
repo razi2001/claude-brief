@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Claude Brief — Settings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --cream: #f5f1e8;
+        --cream-2: #efe9dc;
+        --ink: #1a1612;
+        --muted: #8a8378;
+        --accent: #dd6936;
+        --success: #16a34a;
+        --hairline: rgba(26, 22, 18, 0.12);
+        --display: 'Instrument Serif', Georgia, serif;
+        --mono: 'JetBrains Mono', ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        background: var(--cream);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 56px 28px 100px; }
+
+      header {
+        display: flex; align-items: center; gap: 14px;
+        padding-bottom: 26px; margin-bottom: 36px;
+        border-bottom: 1px solid var(--hairline);
+      }
+      .mark { flex-shrink: 0; display: block; filter: drop-shadow(0 2px 6px rgba(26,22,18,0.18)); }
+      .wordmark { font-family: var(--display); font-size: 30px; letter-spacing: -0.02em; }
+      .wordmark .sub { font-family: var(--mono); font-size: 12px; color: var(--muted); display: block; margin-top: -2px; }
+
+      h1 {
+        font-family: var(--display); font-weight: 400;
+        font-size: 34px; line-height: 1.12; letter-spacing: -0.02em;
+        margin-bottom: 12px;
+      }
+      h1 em { font-style: italic; color: var(--accent); }
+      .lede { font-size: 14.5px; color: var(--ink); margin-bottom: 36px; max-width: 52ch; }
+
+      .section {
+        background: rgba(255,255,255,0.5);
+        border: 1px solid var(--hairline);
+        border-radius: 12px;
+        padding: 22px 24px;
+        margin-bottom: 18px;
+      }
+      .section h2 {
+        font-family: var(--mono); font-size: 13px; font-weight: 500;
+        text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+        margin-bottom: 16px;
+      }
+
+      /* Toggle row */
+      .row { display: flex; align-items: flex-start; gap: 16px; padding: 6px 0; }
+      .row + .row { margin-top: 14px; border-top: 1px solid var(--hairline); padding-top: 18px; }
+      .row-body { flex: 1; }
+      .row-title { font-size: 14px; font-weight: 500; margin-bottom: 3px; }
+      .row-desc { font-family: var(--display); font-style: italic; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
+
+      /* Switch */
+      .switch { position: relative; width: 44px; height: 26px; flex-shrink: 0; cursor: pointer; }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider {
+        position: absolute; inset: 0; background: var(--hairline);
+        border-radius: 13px; transition: background 0.18s;
+      }
+      .slider::before {
+        content: ''; position: absolute; height: 20px; width: 20px;
+        left: 3px; top: 3px; background: #fff; border-radius: 50%;
+        transition: transform 0.18s; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      }
+      .switch input:checked + .slider { background: var(--accent); }
+      .switch input:checked + .slider::before { transform: translateX(18px); }
+
+      /* Time picker */
+      .time-control { display: flex; align-items: center; gap: 12px; }
+      select, input[type="time"] {
+        font-family: var(--mono); font-size: 14px;
+        padding: 9px 12px; border: 1px solid var(--hairline);
+        border-radius: 8px; background: #fff; color: var(--ink);
+        cursor: pointer;
+      }
+      .days-hint { font-family: var(--display); font-style: italic; font-size: 13px; color: var(--muted); }
+
+      /* Buttons */
+      .btn {
+        padding: 13px 22px; border: 0; border-radius: 9px;
+        font-family: var(--mono); font-size: 14px; font-weight: 500;
+        cursor: pointer; transition: background 0.15s, transform 0.08s;
+      }
+      .btn:active { transform: translateY(1px); }
+      .btn-primary { background: var(--ink); color: var(--cream); }
+      .btn-primary:hover { background: #2a2520; }
+      .btn-accent { background: var(--accent); color: var(--cream); }
+      .btn-accent:hover { background: #b54328; }
+      .btn-accent.copied { background: var(--success); }
+
+      .save-row { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
+      .saved-flag { font-size: 13px; color: var(--success); opacity: 0; transition: opacity 0.2s; }
+      .saved-flag.show { opacity: 1; }
+
+      /* Copy-prompt panels */
+      .sync-panel {
+        margin-top: 18px;
+        border: 1px solid rgba(221,105,54,0.3);
+        background: rgba(221,105,54,0.06);
+        border-radius: 12px;
+        padding: 20px 22px;
+        display: none;
+      }
+      .sync-panel.show { display: block; }
+      .sync-panel h3 {
+        font-family: var(--display); font-style: italic; font-size: 19px;
+        font-weight: 400; margin-bottom: 8px;
+      }
+      .sync-panel p { font-size: 13px; color: var(--ink); margin-bottom: 14px; }
+      .prompt-box {
+        position: relative; background: var(--ink); color: var(--cream);
+        border-radius: 10px; padding: 26px 18px 16px; margin-top: 16px; margin-bottom: 14px;
+        font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .prompt-box::before {
+        content: 'Paste into Claude Code'; position: absolute; top: 9px; left: 18px;
+        font-family: var(--mono); font-size: 9px; text-transform: uppercase;
+        letter-spacing: 0.12em; color: rgba(245, 241, 232, 0.45);
+      }
+
+      /* Setup/maintenance prompts (collapsible) */
+      details { margin-top: 14px; border-top: 1px solid var(--hairline); padding-top: 14px; }
+      details summary {
+        cursor: pointer; font-size: 13px; color: var(--muted);
+        list-style: none; display: flex; align-items: center; gap: 8px;
+      }
+      details summary::-webkit-details-marker { display: none; }
+      details summary::before { content: '+'; color: var(--accent); font-size: 16px; }
+      details[open] summary::before { content: '−'; }
+      details summary:hover { color: var(--ink); }
+      .maint { margin-top: 14px; }
+
+      code { font-family: var(--mono); font-size: 12.5px; background: rgba(26,22,18,0.06); padding: 1px 5px; border-radius: 3px; }
+      .footnote { font-size: 12px; color: var(--muted); margin-top: 28px; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <svg class="mark" viewBox="0 0 128 128" width="52" height="52" aria-hidden="true">
+          <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
+          <path fill="#f5f1e8" d="
+            M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
+            M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z
+            M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
+            M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
+          "/>
+          <path fill="#f5f1e8" d="
+            M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88
+            C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z
+          "/>
+        </svg>
+        <span class="wordmark">Claude Brief<span class="sub">Settings</span></span>
+      </header>
+
+      <h1 id="pageTitle">Settings</h1>
+      <p class="lede" id="pageLede">Configure when Claude processes your inbox.</p>
+
+      <!-- ONBOARDING: install skill + pick schedule, combined into one prompt -->
+      <div class="section" id="onboardingSection" hidden>
+        <h2>Set up the Brief skill</h2>
+        <p class="row-desc" style="margin-bottom:18px;">Pick when Claude should file your tickets each day, then paste one prompt into Claude Code Desktop. It installs the skill and schedules the daily run in one go.</p>
+
+        <div class="row" style="border:0;padding-top:0;">
+          <span class="row-body">
+            <span class="row-title">Process my inbox automatically at</span>
+            <span class="row-desc">Every weekday. Claude Code Desktop must be open at that time.</span>
+            <div class="time-control" style="margin-top:12px;">
+              <input type="time" id="onboardTime" value="18:00" />
+              <span class="days-hint">every weekday</span>
+            </div>
+          </span>
+        </div>
+
+        <div class="prompt-box" id="setupPrompt" style="margin-top:20px;"></div>
+        <button class="btn btn-accent" id="copySetupBtn">Copy setup prompt</button>
+        <div id="onboardDone" class="close-hint" style="display:none;margin-top:20px;">
+          <strong>You're all set.</strong> Paste that into Claude Code Desktop, then close this tab and click the Claude Brief icon (✦) to start capturing.
+        </div>
+      </div>
+
+      <!-- NORMAL SETTINGS: schedule editor -->
+      <div class="section" id="scheduleSection">
+        <h2>Daily processing</h2>
+        <div class="row">
+          <span class="row-body">
+            <span class="row-title">Process my inbox automatically at</span>
+            <span class="row-desc">Claude Code Desktop will file tickets for everything in your inbox at this time, every weekday. Requires Claude Code Desktop to be open at that time.</span>
+            <div class="time-control" style="margin-top:12px;">
+              <input type="time" id="scheduleTime" value="18:00" />
+              <span class="days-hint">every weekday</span>
+            </div>
+          </span>
+        </div>
+      </div>
+
+      <div class="save-row" id="saveRow">
+        <button class="btn btn-primary" id="saveBtn">Save &amp; update schedule</button>
+        <span class="saved-flag" id="savedFlag">✓ Saved</span>
+      </div>
+
+      <!-- Sync-to-Claude panel (revealed on save) -->
+      <div class="sync-panel" id="syncPanel">
+        <h3>One more step — tell Claude Code</h3>
+        <p>Saved in the extension. To apply the new time, paste this into Claude Code Desktop (already copied to your clipboard):</p>
+        <div class="prompt-box" id="syncPrompt"></div>
+        <button class="btn btn-accent" id="copySyncBtn">Copy again</button>
+      </div>
+
+      <!-- Maintenance prompts (update / uninstall) -->
+      <div class="section" id="maintSection" style="margin-top:28px;">
+        <h2>Maintenance</h2>
+        <p class="row-desc" style="margin-bottom:6px;">Prompts to paste into Claude Code Desktop. Each is copied to your clipboard when you open it.</p>
+
+        <details>
+          <summary>Update the Brief skill to the latest version</summary>
+          <div class="maint">
+            <div class="prompt-box" id="updatePrompt"></div>
+            <button class="btn btn-accent" data-copy="updatePrompt">Copy</button>
+          </div>
+        </details>
+
+        <details>
+          <summary>Uninstall the Brief skill</summary>
+          <div class="maint">
+            <div class="prompt-box" id="uninstallPrompt"></div>
+            <button class="btn btn-accent" data-copy="uninstallPrompt">Copy</button>
+          </div>
+        </details>
+      </div>
+
+      <p class="footnote">
+        Claude Brief works with <strong>Claude Code Desktop</strong>. Briefs are saved locally to <code>~/Downloads/claude-brief/</code> and never leave your machine until Claude reads them. Scheduled processing only runs while Claude Code Desktop is open.
+      </p>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>

@@ -1,150 +1,167 @@
-// Brief — offscreen recorder
-// Records video+audio, runs SpeechRecognition, BUILDS THE ZIP locally,
-// and passes only a blob URL back to background (no huge data URLs).
+// Claude Brief — offscreen recorder
+//
+// Runs in chrome-extension://<id>/offscreen.html as an offscreen document.
+// This origin is NOT subject to any host page's Permissions-Policy, so
+// mic + tab capture work reliably regardless of the recorded page's headers.
+//
+// Talks to background.js via chrome.runtime messages. The bar iframe never
+// touches mic or MediaRecorder directly — it only sends control messages.
 
-import { makeZip } from './lib/zip.js';
-
-const KEYFRAME_INTERVAL_MS = 2000;
-
+let micStream = null;
+let tabStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
-let displayStream = null;
-let micStream = null;
-let combinedStream = null;
-let keyframes = []; // { timestamp, blob }   <-- store blobs, not data URLs
-let keyframeTimer = null;
-let recordingStartMs = 0;
-let currentBriefId = null;
-
 let recognizer = null;
 let transcriptFinal = '';
 let transcriptInterim = '';
+let transcriptChunks = [];
 let recognitionShouldRun = false;
+let recordingStartMs = 0;
+let previewVideo = null;
+let keyframes = [];
+let keyframeTimer = null;
 
-// Keep the most recent object URL alive long enough for the download to complete
-let pendingZipUrl = null;
+const KEYFRAME_INTERVAL_MS = 2000;
 
+function log(...args) {
+  console.log('[brief/offscreen]', ...args);
+}
+
+// ---------- Message router ----------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== 'offscreen') return false;
 
-  if (message.type === 'OFFSCREEN_START') {
-    currentBriefId = message.briefId;
-    sendResponse({ ok: true });
-    startRecording().catch((err) => {
-      console.error('[brief/offscreen] start failed:', err);
-      chrome.runtime
-        .sendMessage({ type: 'RECOGNITION_ERROR', payload: { error: String(err?.message || err) } })
-        .catch(() => {});
-    });
-    return false;
-  }
-
-  if (message.type === 'OFFSCREEN_STOP') {
-    sendResponse({ ok: true });
-    stopRecording().catch((err) => console.error('[brief/offscreen] stop failed:', err));
-    return false;
-  }
-
-  if (message.type === 'OFFSCREEN_REVOKE') {
-    if (pendingZipUrl) {
-      URL.revokeObjectURL(pendingZipUrl);
-      pendingZipUrl = null;
+  (async () => {
+    try {
+      switch (message.type) {
+        case 'PING':
+          sendResponse({ ok: true });
+          break;
+        case 'START':
+          await startRecording(message.streamId, message.lang);
+          sendResponse({ ok: true });
+          break;
+        case 'STOP':
+          await stopRecording(message.transcriptFinal, message.transcriptChunks);
+          sendResponse({ ok: true });
+          break;
+        case 'CANCEL':
+          await cancelRecording();
+          sendResponse({ ok: true });
+          break;
+        case 'GET_TAB_STREAM_ID':
+          // Bar might need the stream ID to also tap it for keyframes
+          sendResponse({ ok: true });
+          break;
+        case 'MUTE':
+          if (micStream) {
+            for (const t of micStream.getAudioTracks()) t.enabled = !message.muted;
+          }
+          sendResponse({ ok: true });
+          break;
+        default:
+          sendResponse({ ok: false, error: 'unknown_type' });
+      }
+    } catch (err) {
+      log('handler error:', err);
+      sendResponse({ ok: false, error: String(err?.message || err) });
     }
-    sendResponse({ ok: true });
-    return false;
-  }
+  })();
 
-  return false;
+  return true; // keep channel open for async response
 });
 
-async function startRecording() {
-  displayStream = await navigator.mediaDevices.getDisplayMedia({
-    video: { frameRate: 30 },
-    audio: true,
-  });
+// ---------- Recording ----------
+async function startRecording(streamId, lang) {
+  log('startRecording', { streamId, lang });
+  recordedChunks = [];
+  transcriptFinal = '';
+  transcriptInterim = '';
+  transcriptChunks = [];
+  recordingStartMs = Date.now();
 
+  // 1. Tab stream from the streamId we were handed
+  tabStream = await navigator.mediaDevices.getUserMedia({
+    audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
+    video: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
+  });
+  // Re-route tab audio to speakers (tabCapture mutes the source by default)
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    const ctx = new AudioContext();
+    ctx.createMediaStreamSource(new MediaStream(tabStream.getAudioTracks()))
+      .connect(ctx.destination);
   } catch (err) {
-    console.warn('[brief/offscreen] mic denied:', err);
-    micStream = null;
-    chrome.runtime
-      .sendMessage({
-        type: 'RECOGNITION_ERROR',
-        payload: { error: `mic-${err?.name || 'denied'}` },
-      })
-      .catch(() => {});
+    log('tab audio routing failed:', err);
   }
 
-  const tracks = [];
-  for (const t of displayStream.getVideoTracks()) tracks.push(t);
+  // 2. Mic stream — THIS is the one that fails inside page iframes.
+  //    Here in offscreen origin, no page policy applies.
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 
+  // 3. Mix tab audio + mic audio into combined stream alongside tab video
+  const tracks = [];
+  for (const t of tabStream.getVideoTracks()) tracks.push(t);
   const audioCtx = new AudioContext();
   const dest = audioCtx.createMediaStreamDestination();
-  let anyAudio = false;
-  for (const t of displayStream.getAudioTracks()) {
+  for (const t of tabStream.getAudioTracks()) {
     audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
-    anyAudio = true;
   }
-  if (micStream) {
-    for (const t of micStream.getAudioTracks()) {
-      audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
-      anyAudio = true;
-    }
+  for (const t of micStream.getAudioTracks()) {
+    audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
   }
-  if (anyAudio) {
-    for (const t of dest.stream.getAudioTracks()) tracks.push(t);
-  }
+  for (const t of dest.stream.getAudioTracks()) tracks.push(t);
+  const combinedStream = new MediaStream(tracks);
 
-  combinedStream = new MediaStream(tracks);
-
-  const preview = document.getElementById('preview');
-  preview.srcObject = combinedStream;
-  await preview.play().catch(() => {});
-
-  for (const t of displayStream.getVideoTracks()) {
-    t.addEventListener('ended', () => {
-      stopRecording().catch((e) => console.error(e));
-    });
-  }
-
-  const candidates = [
-    'video/webm;codecs=vp9,opus',
-    'video/webm;codecs=vp8,opus',
-    'video/webm',
-    'video/mp4',
-  ];
-  const mimeType = candidates.find((m) => MediaRecorder.isTypeSupported(m)) || '';
-
-  recordedChunks = [];
-  mediaRecorder = new MediaRecorder(combinedStream, mimeType ? { mimeType } : undefined);
+  // 4. MediaRecorder
+  const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+    ? 'video/webm;codecs=vp9,opus'
+    : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+      ? 'video/webm;codecs=vp8,opus'
+      : 'video/webm';
+  mediaRecorder = new MediaRecorder(combinedStream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
-
-  recordingStartMs = Date.now();
-  keyframes = [];
-  transcriptFinal = '';
-  transcriptInterim = '';
-
   mediaRecorder.start(1000);
-  startKeyframeCapture(preview);
-  startSpeechRecognition();
+
+  // 4b. Hidden video element to enable keyframe extraction via canvas
+  if (!previewVideo) {
+    previewVideo = document.createElement('video');
+    previewVideo.muted = true;
+    previewVideo.autoplay = true;
+    previewVideo.playsInline = true;
+    previewVideo.style.display = 'none';
+    document.body.appendChild(previewVideo);
+  }
+  previewVideo.srcObject = combinedStream;
+  await previewVideo.play().catch(() => {});
+
+  keyframes = [];
+  startKeyframeCapture();
+
+  // 5. Speech recognition runs in the BAR, not here. Offscreen documents
+  // are invisible to Chrome, and webkitSpeechRecognition silently fails to
+  // produce results in invisible contexts. The bar iframe is visible and
+  // works correctly. We just record audio/video here.
+
+  // 6. Notify the bar (via background relay — see RECORDING_FINISHED for why)
+  chrome.runtime.sendMessage({
+    target: 'relayToBar',
+    payload: { target: 'bar', type: 'RECORDING_STARTED', startedAt: recordingStartMs },
+  });
 }
 
-function startKeyframeCapture(videoEl) {
+function startKeyframeCapture() {
+  if (keyframeTimer) clearInterval(keyframeTimer);
   const captureOne = async () => {
-    if (!videoEl || videoEl.readyState < 2) return;
-    const w = videoEl.videoWidth;
-    const h = videoEl.videoHeight;
+    if (!previewVideo || previewVideo.readyState < 2) return;
+    const w = previewVideo.videoWidth, h = previewVideo.videoHeight;
     if (!w || !h) return;
     const maxW = 1280;
     const scale = Math.min(1, maxW / w);
-    const cw = Math.round(w * scale);
-    const ch = Math.round(h * scale);
+    const cw = Math.round(w * scale), ch = Math.round(h * scale);
     const canvas = new OffscreenCanvas(cw, ch);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(videoEl, 0, 0, cw, ch);
+    canvas.getContext('2d').drawImage(previewVideo, 0, 0, cw, ch);
     const blob = await canvas.convertToBlob({ type: 'image/png' });
     keyframes.push({ timestamp: Date.now() - recordingStartMs, blob });
   };
@@ -152,156 +169,122 @@ function startKeyframeCapture(videoEl) {
   keyframeTimer = setInterval(captureOne, KEYFRAME_INTERVAL_MS);
 }
 
-// ---------- Speech recognition (unchanged) ----------
-function startSpeechRecognition() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) {
-    chrome.runtime
-      .sendMessage({ type: 'RECOGNITION_ERROR', payload: { error: 'not-supported' } })
-      .catch(() => {});
-    return;
+function stopKeyframeCapture() {
+  if (keyframeTimer) clearInterval(keyframeTimer);
+  keyframeTimer = null;
+}
+
+async function blobToBase64(blob) {
+  const ab = await blob.arrayBuffer();
+  const bytes = new Uint8Array(ab);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
   }
-  recognizer = new Recognition();
-  recognizer.continuous = true;
-  recognizer.interimResults = true;
-  recognizer.lang = navigator.language || 'en-US';
-  recognitionShouldRun = true;
+  return btoa(bin);
+}
 
-  recognizer.onresult = (e) => {
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) transcriptFinal += r[0].transcript;
-      else interim += r[0].transcript;
-    }
-    transcriptInterim = interim;
-    chrome.runtime
-      .sendMessage({
-        type: 'TRANSCRIPT_UPDATE',
-        payload: { final: transcriptFinal, interim: transcriptInterim },
-      })
-      .catch(() => {});
-  };
-
-  recognizer.onerror = (e) => {
-    console.warn('[brief/offscreen] speech error:', e.error);
-    if (['not-allowed', 'service-not-allowed', 'audio-capture', 'network', 'not-supported'].includes(e.error)) {
-      chrome.runtime
-        .sendMessage({ type: 'RECOGNITION_ERROR', payload: { error: e.error } })
-        .catch(() => {});
-      recognitionShouldRun = false;
-    }
-  };
-
-  recognizer.onend = () => {
-    if (recognitionShouldRun && mediaRecorder && mediaRecorder.state === 'recording') {
-      try { recognizer.start(); } catch {}
-    }
-  };
-
-  try { recognizer.start(); } catch (err) {
-    chrome.runtime
-      .sendMessage({ type: 'RECOGNITION_ERROR', payload: { error: String(err?.message || err) } })
-      .catch(() => {});
-  }
+function startSpeechRecognition(lang) {
+  // Intentionally unused — SR runs in the bar iframe instead.
+  // Kept as a no-op so the rest of the message handling doesn't break.
 }
 
 function stopSpeechRecognition() {
-  recognitionShouldRun = false;
-  if (recognizer) {
-    try { recognizer.stop(); } catch {}
-    try { recognizer.abort(); } catch {}
-    recognizer = null;
-  }
+  // No-op — see startSpeechRecognition.
 }
 
-// ---------- Stop, build zip locally, hand off a blob URL ----------
-async function stopRecording() {
-  if (keyframeTimer) {
-    clearInterval(keyframeTimer);
-    keyframeTimer = null;
-  }
+async function stopRecording(transcriptFinalFromBar, transcriptChunksFromBar) {
+  log('stopRecording');
   stopSpeechRecognition();
+  stopKeyframeCapture();
 
-  if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
-
+  // Wait for MediaRecorder to flush
   await new Promise((resolve) => {
-    mediaRecorder.addEventListener('stop', resolve, { once: true });
-    mediaRecorder.stop();
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') return resolve();
+    mediaRecorder.onstop = () => resolve();
+    try { mediaRecorder.stop(); } catch { resolve(); }
   });
 
-  for (const t of (displayStream?.getTracks() || [])) t.stop();
-  for (const t of (micStream?.getTracks() || [])) t.stop();
-  displayStream = null;
-  micStream = null;
-  combinedStream = null;
+  cleanupStreams();
 
-  const briefId = currentBriefId;
-  const mimeType = mediaRecorder.mimeType || 'video/webm';
-  const durationMs = Date.now() - recordingStartMs;
-  const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
-  const videoBlob = new Blob(recordedChunks, { type: mimeType });
+  // Build the audio/video blob
+  const blob = new Blob(recordedChunks, { type: 'video/webm' });
+  const recordingB64 = await blobToBase64(blob);
 
-  // Skeleton brief; background fills in pageUrl/pageTitle from active tab.
-  const briefSkeleton = {
-    id: briefId,
-    schemaVersion: 1,
-    createdAt: new Date().toISOString(),
-    durationMs,
-    transcript: transcriptFinal.trim() || null,
-    keyframes: keyframes.map((kf, i) => ({
-      index: i,
-      timestamp: kf.timestamp,
-      file: `keyframes/keyframe-${String(i).padStart(3, '0')}.png`,
-    })),
-    recording: { file: `recording.${ext}`, mimeType, durationMs },
-    // pageUrl/pageTitle/userAgent/events filled by background
-  };
-
-  // Build the zip right here. No big messages.
-  const folder = `Brief/${briefId}`;
-  const files = [
-    { name: `${folder}/brief.json`, data: '__PLACEHOLDER__' }, // will be replaced after background fills metadata
-    { name: `${folder}/${briefSkeleton.recording.file}`, data: new Uint8Array(await videoBlob.arrayBuffer()) },
-  ];
-  for (let i = 0; i < keyframes.length; i++) {
-    const bytes = new Uint8Array(await keyframes[i].blob.arrayBuffer());
-    files.push({
-      name: `${folder}/keyframes/keyframe-${String(i).padStart(3, '0')}.png`,
-      data: bytes,
+  // Serialize keyframes
+  const keyframesB64 = [];
+  for (const k of keyframes) {
+    keyframesB64.push({
+      timestamp: k.timestamp,
+      base64: await blobToBase64(k.blob),
     });
   }
 
-  // Tell background to finalize metadata; it will message us back
-  // with the completed brief.json text so we can include it in the zip.
-  const completedBrief = await chrome.runtime.sendMessage({
-    type: 'FINALIZE_METADATA',
-    payload: { brief: briefSkeleton },
-  });
+  const durationMs = Date.now() - recordingStartMs;
 
-  files[0].data = JSON.stringify(completedBrief.brief, null, 2);
-
-  const zipBlob = makeZip(files);
-  if (pendingZipUrl) URL.revokeObjectURL(pendingZipUrl);
-  pendingZipUrl = URL.createObjectURL(zipBlob);
-
-  // Tell background the zip is ready — it will trigger the download and
-  // tell us to revoke when done.
-  await chrome.runtime.sendMessage({
-    type: 'ZIP_READY',
+  // Send via background — it knows which tab the bar lives in.
+  // Using a relay target instead of broadcast so the bar receives the
+  // message only via background's chrome.tabs.sendMessage path (no
+  // duplicate delivery from the broadcast).
+  chrome.runtime.sendMessage({
+    target: 'relayToBar',
     payload: {
-      briefId,
-      brief: completedBrief.brief,
-      blobUrl: pendingZipUrl,
-      filename: `Brief/brief-${briefId}.zip`,
-      sizeBytes: zipBlob.size,
+      target: 'bar',
+      type: 'RECORDING_FINISHED',
+      recordingB64,
+      mimeType: 'video/webm',
+      durationMs,
+      transcriptFinal: (transcriptFinalFromBar || '').trim(),
+      transcriptChunks: transcriptChunksFromBar || [],
+      keyframes: keyframesB64,
     },
   });
 
-  mediaRecorder = null;
   recordedChunks = [];
   keyframes = [];
-  currentBriefId = null;
-  transcriptFinal = '';
-  transcriptInterim = '';
 }
+
+async function cancelRecording() {
+  log('cancelRecording');
+  stopSpeechRecognition();
+  stopKeyframeCapture();
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    try { mediaRecorder.stop(); } catch {}
+  }
+  cleanupStreams();
+  recordedChunks = [];
+  keyframes = [];
+  transcriptChunks = [];
+  transcriptFinal = '';
+}
+
+function cleanupStreams() {
+  try {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+  } catch {}
+  for (const t of (tabStream?.getTracks() || [])) {
+    try { t.stop(); } catch {}
+  }
+  for (const t of (micStream?.getTracks() || [])) {
+    try { t.stop(); } catch {}
+  }
+  tabStream = null;
+  micStream = null;
+  mediaRecorder = null;
+  if (previewVideo) {
+    try { previewVideo.srcObject = null; } catch {}
+  }
+}
+
+// Stop everything if the document is unloaded (e.g. when background calls
+// chrome.offscreen.closeDocument). Otherwise streams can linger and block
+// tabCapture on the next recording.
+window.addEventListener('beforeunload', () => {
+  stopKeyframeCapture();
+  cleanupStreams();
+});
+
+log('offscreen recorder loaded');

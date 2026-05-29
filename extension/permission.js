@@ -1,57 +1,64 @@
-// Brief — permission grant page
-// Lives in a regular tab so Chrome's mic prompt doesn't get auto-dismissed
-// (which is what happens when getUserMedia is called from the extension popup).
+// Claude Brief — microphone permission page
+//
+// This page exists only to fire Chrome's native mic prompt reliably (a
+// top-level extension tab is the one context where it works). Once mic is
+// granted, we hand off to the settings page in onboarding mode, which walks
+// the user through capture prefs + schedule + the Claude Code setup prompt.
 
-const grantBtn = document.getElementById('grant');
+const grantBtn = document.getElementById('grantBtn');
 const statusEl = document.getElementById('status');
 
-function show(kind, html) {
-  statusEl.className = `status ${kind}`;
-  statusEl.style.display = 'block';
-  statusEl.innerHTML = html;
+function setStatus(kind, message) {
+  statusEl.className = `status ${kind} show`;
+  statusEl.textContent = message;
 }
+function hideStatus() { statusEl.className = 'status'; }
 
-async function checkCurrent() {
+async function checkMic() {
   try {
     if (navigator.permissions?.query) {
       const s = await navigator.permissions.query({ name: 'microphone' });
-      if (s.state === 'granted') {
-        show(
-          'success',
-          '<strong>Already granted.</strong><br />You can close this tab and go record a brief.',
-        );
-        grantBtn.disabled = true;
-        grantBtn.textContent = 'Granted ✓';
-        setTimeout(() => window.close(), 1800);
-      }
+      return s.state;
     }
-  } catch {
-    // 'microphone' may not be queryable in some Chrome versions — that's fine
-  }
+  } catch {}
+  return 'prompt';
 }
 
+function goToOnboarding() {
+  // Replace this tab with the settings page in onboarding mode
+  location.href = chrome.runtime.getURL('settings.html?onboarding=1');
+}
+
+(async () => {
+  const state = await checkMic();
+  if (state === 'granted') {
+    grantBtn.textContent = '✓ Microphone already granted';
+    grantBtn.disabled = true;
+    setStatus('ok', 'Microphone access is set up — continuing…');
+    setTimeout(goToOnboarding, 700);
+  }
+})();
+
 grantBtn.addEventListener('click', async () => {
+  hideStatus();
   grantBtn.disabled = true;
-  grantBtn.textContent = 'Asking Chrome…';
+  grantBtn.textContent = 'Requesting…';
+  let stream;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // Immediately release; we just needed the permission grant.
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach((t) => t.stop());
-    show(
-      'success',
-      '<strong>Microphone granted.</strong><br />Closing this tab in a moment. Click the Brief icon and record.',
-    );
-    grantBtn.textContent = 'Granted ✓';
-    setTimeout(() => window.close(), 1500);
+    grantBtn.textContent = '✓ Microphone granted';
+    setStatus('ok', 'Granted — continuing to setup…');
+    setTimeout(goToOnboarding, 800);
   } catch (err) {
     grantBtn.disabled = false;
     grantBtn.textContent = 'Try again';
-    show(
-      'error',
-      `Could not get microphone access: <code>${err?.name || 'error'}</code> — ${err?.message || ''}<br /><br />` +
-        'If you accidentally clicked "Block", open <code>chrome://settings/content/microphone</code>, find Brief, and set it to <strong>Allow</strong>.',
-    );
+    if (err?.name === 'NotAllowedError') {
+      setStatus('err', "Blocked. Click the mic/camera icon in Chrome's address bar to allow, then try again.");
+    } else if (err?.name === 'NotFoundError') {
+      setStatus('err', 'No microphone found. Plug one in and try again.');
+    } else {
+      setStatus('err', `Mic error: ${err?.message || err}`);
+    }
   }
 });
-
-checkCurrent();

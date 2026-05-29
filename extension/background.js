@@ -1,9 +1,57 @@
 // Brief — background service worker
-// Thin coordinator: collects per-tab events during recording and runs
-// chrome.downloads from blob URLs the bar creates.
+// Thin coordinator: collects per-tab events, manages offscreen recorder,
+// relays messages between bar (in content script) and offscreen.
+
+// ---------- Inbox badge ----------
+async function refreshBadge() {
+  try {
+    const { inbox } = await chrome.storage.local.get('inbox');
+    const count = Array.isArray(inbox) ? inbox.length : 0;
+    if (count === 0) {
+      chrome.action.setBadgeText({ text: '' });
+    } else {
+      chrome.action.setBadgeText({ text: String(count > 99 ? '99+' : count) });
+      chrome.action.setBadgeBackgroundColor({ color: '#dd6936' });
+      chrome.action.setBadgeTextColor?.({ color: '#ffffff' });
+    }
+  } catch (err) {
+    console.warn('[brief/background] badge refresh:', err);
+  }
+}
+
+// ---------- Offscreen document lifecycle ----------
+const OFFSCREEN_PATH = 'offscreen.html';
+
+async function hasOffscreenDocument() {
+  if (chrome.offscreen?.hasDocument) return await chrome.offscreen.hasDocument();
+  // Fallback for older Chrome
+  const contexts = await chrome.runtime.getContexts?.({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [chrome.runtime.getURL(OFFSCREEN_PATH)],
+  });
+  return contexts && contexts.length > 0;
+}
+
+async function ensureOffscreenDocument() {
+  if (await hasOffscreenDocument()) return;
+  await chrome.offscreen.createDocument({
+    url: OFFSCREEN_PATH,
+    reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
+    justification: 'Capture mic + tab audio/video for Claude Brief recording.',
+  });
+}
+
+async function closeOffscreenDocument() {
+  if (await hasOffscreenDocument()) {
+    try { await chrome.offscreen.closeDocument(); } catch {}
+  }
+}
+
+// Track which tab's bar to send relayed messages back to
+let ACTIVE_BAR_TAB_ID = null;
 
 // On install / update, inject the content script into already-open tabs.
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   try {
     const tabs = await chrome.tabs.query({});
     for (const tab of tabs) {
@@ -16,6 +64,10 @@ chrome.runtime.onInstalled.addListener(async () => {
         });
       } catch {}
     }
+    if (details?.reason === 'install') {
+      chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }).catch(() => {});
+    }
+    await refreshBadge();
   } catch (err) {
     console.warn('[brief/background] on-install inject:', err);
   }
@@ -29,6 +81,43 @@ const STATE = {
 };
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // ---------- Bar → Offscreen relay ----------
+  // Bar can't message offscreen directly (different documents, no shared
+  // context). Background routes by `target: 'offscreen'`.
+  if (message?.target === 'offscreen') {
+    (async () => {
+      try {
+        await ensureOffscreenDocument();
+        // Remember which tab to relay results back to
+        if (sender?.tab?.id) ACTIVE_BAR_TAB_ID = sender.tab.id;
+        const res = await chrome.runtime.sendMessage(message);
+        sendResponse(res);
+      } catch (err) {
+        console.error('[brief/background] offscreen relay:', err);
+        sendResponse({ ok: false, error: String(err?.message || err) });
+      }
+    })();
+    return true;
+  }
+
+  // ---------- Offscreen → Bar relay ----------
+  // Offscreen sends {target: 'relayToBar', payload: {...}} — we forward the
+  // payload to the bar's tab. The bar receives ONCE (via chrome.tabs.sendMessage)
+  // — not duplicated through broadcast.
+  if (message?.target === 'relayToBar') {
+    (async () => {
+      try {
+        if (ACTIVE_BAR_TAB_ID != null && message.payload) {
+          await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, message.payload);
+        }
+        sendResponse({ ok: true });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err?.message || err) });
+      }
+    })();
+    return true;
+  }
+
   (async () => {
     try {
       switch (message?.type) {
@@ -41,8 +130,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               ? { url: sender.tab.url, title: sender.tab.title, id: sender.tab.id }
               : null;
             STATE.activeTabAtStart = tab;
-            // Install page-world console/error capture for this tab
             if (tab?.id) {
+              ACTIVE_BAR_TAB_ID = tab.id;
               try {
                 await chrome.scripting.executeScript({
                   target: { tabId: tab.id },
@@ -61,6 +150,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'BRIEF_STOP':
           STATE.recording = false;
+          // Offscreen no longer needed
+          closeOffscreenDocument().catch(() => {});
+          sendResponse({ ok: true });
+          break;
+
+        case 'OPEN_PERMISSION_PAGE':
+          // Bar requests it when the offscreen mic call failed — we close
+          // the offscreen doc and pop open the permission tab.
+          closeOffscreenDocument().catch(() => {});
+          chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }).catch(() => {});
+          sendResponse({ ok: true });
+          break;
+
+        case 'INBOX_CHANGED':
+          await refreshBadge();
+          sendResponse({ ok: true });
+          break;
+
+        case 'RESET_BEFORE_NEW_RECORDING':
+          // Before a new recording, ensure no stale recording infrastructure
+          // is holding a tabCapture stream. Close offscreen, dismiss any
+          // open bar in any tab, clear state.
+          STATE.recording = false;
+          STATE.events = [];
+          try {
+            if (ACTIVE_BAR_TAB_ID != null) {
+              await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });
+            }
+          } catch {}
+          await closeOffscreenDocument().catch(() => {});
+          // Small wait for Chrome to fully release the tabCapture stream
+          await new Promise((r) => setTimeout(r, 150));
           sendResponse({ ok: true });
           break;
 
@@ -92,7 +213,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: String(err?.message || err) });
     }
   })();
-  return true; // async response
+  return true;
 });
 
 async function downloadZip({ blobUrl, filename }) {

@@ -53,6 +53,7 @@ body.state-loading .bar,
 body.state-recording .bar,
 body.state-saving .bar,
 body.state-saved .bar,
+body.state-inboxed .bar,
 body.state-cancelled .bar,
 body.state-error .bar { display: flex !important; align-items: center; }
 
@@ -63,6 +64,7 @@ body.state-loading   [data-state='loading']   { display: flex; justify-content: 
 body.state-recording [data-state='recording'] { display: flex; }
 body.state-saving    [data-state='saving']    { display: flex; justify-content: center; }
 body.state-saved     [data-state='saved']     { display: flex; }
+body.state-inboxed   [data-state='inboxed']   { display: flex; }
 body.state-cancelled [data-state='cancelled'] { display: flex; }
 body.state-error     [data-state='error']     { display: flex; }
 
@@ -291,14 +293,44 @@ body.state-error     [data-state='error']     { display: flex; }
   color: var(--cream);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.12s ease-out;
 }
-.icon-btn:hover { background: rgba(245, 241, 232, 0.1); }
+.icon-btn:hover {
+  background: rgba(245, 241, 232, 0.12);
+  transform: scale(1.18);
+}
+.icon-btn:active { transform: scale(0.94); }
 .icon-btn.active { background: rgba(199, 62, 29, 0.3); color: var(--accent); }
 .icon-btn.dark-on-cream {
   color: var(--muted);
 }
 .icon-btn.dark-on-cream:hover { background: var(--hairline); color: var(--ink); }
+
+/* Drag grip — Notion-style 6-dot handle on the left of the recording bar */
+.drag-grip {
+  flex-shrink: 0;
+  width: 18px;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: rgba(245, 241, 232, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  padding: 0;
+  margin-left: 2px;
+  margin-right: -2px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+  /* the bar element is itself the drag handle target — see bar.js */
+}
+.drag-grip:hover {
+  color: rgba(245, 241, 232, 0.85);
+  background: rgba(245, 241, 232, 0.08);
+}
+.drag-grip:active { cursor: grabbing; }
+body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
 
 .timer {
   font-family: var(--mono);
@@ -367,6 +399,22 @@ body.state-error     [data-state='error']     { display: flex; }
   font-size: 14px;
   font-weight: 600;
 }
+.retry-link {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 4px;
+}
+.retry-link:hover { color: var(--cream); }
+.retry-link:disabled { opacity: 0.5; cursor: default; }
 
 .spinner {
   width: 18px; height: 18px;
